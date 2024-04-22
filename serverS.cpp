@@ -104,33 +104,32 @@ int main() {
    M_addr.sin_port = htons(SERVER_M_UDP_PORT);
    inet_aton(HOST_NAME, &M_addr.sin_addr);
 
+    // ******************************************************
+    // ********** SEND ROOM STATUS TO MAIN SERVER ***********
+    // ******************************************************
    if ((numbytes = sendto(sockfd, msg, message.size(), 0, (sockaddr *)&M_addr, sizeof(M_addr))) == -1) {
       perror("talker: sendto");
       exit(1);
    }
    std::cout << "The Server S has sent the room status to the main server." << std::endl;
-
    freeaddrinfo(servinfo);
 
-   // processing requests from the main server
    while (1) {
+       // **************************************************************************
+       // ********** RECEIVE ACTION REQUEST FROM MAIN SERVER FROM CLIENT ***********
+       // **************************************************************************
+       // RECEIVE FORMAT: "Action RoomCode username"
        if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN - 1, 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
            perror("recvfrom");
            exit(1);
        }
        buf[numbytes] = '\0';
        std::string receivedData(buf);
-       // Extracting the action, roomCode, and username from the received message
-       // Recieved message format is "Action RoomCode Username"
        size_t firstSpacePos = receivedData.find(' ');
        size_t secondSpacePos = receivedData.find(' ', firstSpacePos + 1);
        std::string action = receivedData.substr(0, firstSpacePos);
        std::string roomCode = receivedData.substr(firstSpacePos + 1, secondSpacePos - firstSpacePos - 1);
        std::string username = receivedData.substr(secondSpacePos + 1);
-       // std::cout << "Action: " << action << std::endl;
-       // std::cout << "Room Code: " << roomCode << std::endl;
-       // std::cout << "Username: " << username << std::endl;
-
        if (action == "Reservation") {
            std::cout << "The Server S received a reservation request from the main server." << std::endl;
        } else if (action == "Availability") {
@@ -168,16 +167,15 @@ int main() {
           }
       }
 
-      // Generate the message for UDP response
-      // format example "Availability 2 2"
-      // format example "Reservation 5 4"
-      // format example "Reservation 0 0"
+
       std::string responseMessage = action + " " + std::to_string(preRoomCount) + " " + std::to_string(aftRoomCount);
       const char* responseData = responseMessage.c_str();
       size_t responseDataLength = responseMessage.size();
-      // std::cout << "responseMessage: " << responseMessage << std::endl;
 
-      // Sending the response
+      // **********************************************************
+      // ********** SEND ACTION RESPONSE TO MAIN SERVER ***********
+      // **********************************************************
+      // SEND FORMAT: "Action preRoomCount aftRoomCount"
       if ((numbytes = sendto(sockfd, responseData, responseDataLength, 0, (sockaddr *)&M_addr, sizeof(M_addr))) == -1) {
           perror("talker: sendto");
           exit(1);

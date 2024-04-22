@@ -98,12 +98,23 @@ int main() {
     while (true) {
         std::string username;
         std::string password;
+        std::string userType;
         std::cout << "Please enter the username: ";
         getline(std::cin, username);
         std::cout << "Please enter the password: ";
         getline(std::cin, password);
-        std::string message = encrypt(username) + " " + encrypt(password); // encrypt the username and password with a single space between them
+        if (password.empty()) {
+            password = "null";
+            userType = "guest";
+        } else {
+            userType = "member";
+        }
+        std::string message = encrypt(username) + " " + encrypt(password);
 
+        // ****************************************************************
+        // ********** SEND AUTHENTICATION REQUEST TO MAIN SERVER **********
+        // ****************************************************************
+        // SEND FORMAT: "username password"
         const char *msg = message.c_str();
         int len = strlen(msg);
         if (send(sockfd, msg, len, 0) == -1) {
@@ -111,15 +122,19 @@ int main() {
         }
         std::cout << username << " sent an authentication request to the main server." << std::endl;
 
+        // **********************************************************************
+        // ********** RECEIVE AUTHENTICATION DECISION FROM MAIN SERVER **********
+        // **********************************************************************
+        // RECEIVE FORMAT: "response"
         if ((numbytes = recv(sockfd, buf, MAXDATASIZE - 1, 0)) == -1) {
             perror("recv");
             exit(1);
         }
         buf[numbytes] = '\0';
 
-        if (buf[0] == 's') { // s for success
+        // APPROVED AUTHENTICATION "s"
+        if (buf[0] == 's') {
             std::cout << "Welcome member " << username << "!" << std::endl;
-
             while (true) {
                 std::string roomCode;
                 std::cout << "Please enter the room code: ";
@@ -138,11 +153,15 @@ int main() {
                     }
                 }
 
-                // Concatenate action and roomCode with a space
+
                 std::string query = action + " " + roomCode;
                 const char *queryMsg = query.c_str();
                 int queryLen = strlen(queryMsg);
 
+                // ***********************************************************
+                // ********** SENDING ACTION REQUEST TO MAIN SERVER **********
+                // ***********************************************************
+                // SEND FORMAT: "Action RoomCode"
                 if (send(sockfd, queryMsg, queryLen, 0) == -1) {
                     perror("send");
                 }
@@ -152,13 +171,17 @@ int main() {
                     std::cout << username << " sent an availability request to the main server." << std::endl;
                 }
 
+
+                // **********************************************************************************
+                // ********** RECEIVING ACTION RESULT FROM MAIN SERVER FROM BACKEND SERVER **********
+                // **********************************************************************************
+                // RECEIVE FORMAT: "Action preRoomCount aftRoomCount"
                 if ((numbytes = recv(sockfd, roomBuf, MAXDATASIZE - 1, 0)) == -1) {
                     perror("recv");
                     exit(1);
                 }
                 roomBuf[numbytes] = '\0';
                 std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
-                // Recieved message format is "Action preRoomCount aftRoomCount" ex. "Availability 2 2"
                 std::string strRoomBuf(roomBuf);
                 size_t firstSpacePos = strRoomBuf.find(' ');
                 size_t secondSpacePos = strRoomBuf.find(' ', firstSpacePos + 1);
@@ -185,11 +208,18 @@ int main() {
                 std::cout << " " << std::endl;
                 std::cout << "-----Start a new request-----" << std::endl;
             }
-        } else if (buf[0] == 'n') { // n for not found
+        }
+
+        // UN-FOUND AUTHENTICATION "n"
+        else if (buf[0] == 'n') {
             std::cout << "Failed login: Username does not exist." << std::endl;
-        } else if (buf[0] == 'p') { // p for password not match
+        }
+
+        // DENIED AUTHENTICATION "p"
+        else if (buf[0] == 'p') {
             std::cout << "Failed login: Password does not match." << std::endl;
         }
+
     }
 
     close(sockfd);

@@ -103,6 +103,10 @@ int main() {
 
     std::map<std::string, int> roomMap;
     for (int i = 0; i < 3; i++) {
+
+        // *********************************************************************
+        // ********** RECEIVE INITIAL ROOM STATUS FROM BACKEND SERVER **********
+        // *********************************************************************
         addr_lenUDP = sizeof their_addrUDP;
         if ((numbytesUDP = recvfrom(sockfdUDP, bufUDP, MAXBUFLEN - 1, 0, (struct sockaddr *)&their_addrUDP, &addr_lenUDP)) == -1) {
             perror("recvfrom");
@@ -193,8 +197,7 @@ int main() {
         }
         break;
     }
-
-    freeaddrinfo(servinfoTCP); // all done with this structure
+    freeaddrinfo(servinfoTCP);
 
     if (pTCP == NULL) {
         fprintf(stderr, "server: failed to bind\n");
@@ -205,7 +208,6 @@ int main() {
         perror("listen");
         exit(1);
     }
-
     // deal with all dead processes
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
@@ -225,20 +227,22 @@ int main() {
             continue;
         }
 
-        if (!fork()) { // this is the child process
+        if (!fork()) {
             close(sockfdTCP); // child doesn't need the listener
-            // receiving Login and confirmation requests from client
             while (true) {
+
+                // *****************************************************************
+                // ********** RECEIVE AUTHENTICATION REQUEST FROM CLIENT ***********
+                // *****************************************************************
+                // RECEIVED FORMAT: "username password"
                 numbytesTCP = recv(new_fd, bufTCP, MAXBUFLEN - 1, 0);
                 if (numbytesTCP == -1) {
                     perror("recv");
                     exit(1);
                 } else if (numbytesTCP == 0) {
-                    break; // connection closed by client
+                    break;
                 }
                 bufTCP[numbytesTCP] = '\0';
-
-
                 std::string received = std::string(bufTCP);
                 size_t delim_pos = received.find(" ");
                 std::string username = received.substr(0, delim_pos);
@@ -246,24 +250,29 @@ int main() {
                 std::string response;
                 std::cout << "The main server received the authentication for " << decrypt(username) << " using TCP over port " << SERVER_M_TCP_PORT << "." << std::endl;
 
-                // s for success, n for not found, p for password not match
+                // APPROVED AUTHENTICATION "s"
                 if (memberMap.find(username) != memberMap.end()) {
                     if (memberMap[username] == password) {
+                        // *************************************************************
+                        // ********** SEND APPROVED AUTHENTICATION TO CLIENT ***********
+                        // *************************************************************
+                        // SEND FORMAT: "response"
                         response = "s";
                         if (send(new_fd, response.c_str(), response.size(), 0) == -1) {
                             perror("send");
                         }
                         std::cout << "The main server sent the authentication result to the client." << std::endl;
 
-                        // Listen for room reservation or availability requests
                         while (true) {
+                            // *********************************************************
+                            // ********** RECEIVE ACTION REQUEST FROM CLIENT ***********
+                            // *********************************************************
+                            // RECEIVE FORMAT: "Action RoomCode"
                             if ((numbytesTCP = recv(new_fd, bufTCP, MAXBUFLEN - 1, 0)) == -1) {
                                 perror("recv");
                                 exit(1);
                             }
                             bufTCP[numbytesTCP] = '\0';
-
-                            // Parsing action and roomCode
                             std::string receivedRequest(bufTCP);
                             size_t first_space = receivedRequest.find(" ");
                             std::string action = receivedRequest.substr(0, first_space);
@@ -296,36 +305,42 @@ int main() {
                                 inet_aton(HOST_NAME, &M_addr.sin_addr);
                                 std::string udpMessage = std::string(bufTCP) + " " + username;
                                 strcpy(bufTCP, udpMessage.c_str());
-                                // std::cout << "udpMessage: " << udpMessage << std::endl;
 
+                                // ************************************************************************
+                                // ********** SEND ACTION REQUEST FROM CLIENT TO BACKEND SERVER ***********
+                                // ************************************************************************
+                                // SEND FORMAT: "Action RoomCode username"
                                 if ((numbytesUDP = sendto(sockfdUDP, bufTCP, strlen(bufTCP), 0, (sockaddr *)&M_addr, sizeof(M_addr))) == -1) {
                                     perror("talker: sendto");
                                     exit(1);
                                 }
                                 std::cout << "The main server sent a request to Server " << serverType << "." << std::endl;
 
+                                // ******************************************************************
+                                // ********** RECEIVE ACTION RESPONSE FROM BACKEND SERVER ***********
+                                // ******************************************************************
+                                // RECEIVE FORMAT: "Action preRoomCount aftRoomCount"
                                 if ((numbytesUDP = recvfrom(sockfdUDP, bufUDP, MAXBUFLEN - 1, 0, (struct sockaddr *)&their_addrUDP, &addr_lenUDP)) == -1) {
                                     perror("recvfrom");
                                     exit(1);
                                 }
                                 bufUDP[numbytesUDP] = '\0';
-
-                                // Recieved message format is "Action preRoomCount aftRoomCount" example "Availability 2 2"
-                                std::string strBufUDP(bufUDP);  // Convert the received message to a std::string for processing.
+                                std::string strBufUDP(bufUDP);
                                 size_t firstSpacePos = strBufUDP.find(' ');
                                 size_t secondSpacePos = strBufUDP.find(' ', firstSpacePos + 1);
                                 std::string action = strBufUDP.substr(0, firstSpacePos);
                                 int preRoomCount = std::stoi(strBufUDP.substr(firstSpacePos + 1, secondSpacePos - firstSpacePos - 1));
                                 int aftRoomCount = std::stoi(strBufUDP.substr(secondSpacePos + 1));
-
                                 if (preRoomCount == aftRoomCount) { // no update
                                     std::cout << "The main server received the response from Server " << serverType << " using UDP over port " << SERVER_M_UDP_PORT <<  "." << std::endl;
                                 } else { // update
                                     std::cout << "The main server received the response and the updated room status from Server " << serverType << " using UDP over port " << SERVER_M_UDP_PORT <<  "." << std::endl;
                                     std::cout << "The room status of " << roomCode << " has been updated." << std::endl;
                                 }
-                            } else {
-                                // Setting preRoomCount and aftRoomCount to -1 when the roomType (S,D,U) is not found
+                            }
+
+                            // If sendStatus is False, the roomType was not found. Set preRoomCount and aftRoomCount to -1.
+                            else {
                                 int preRoomCount = -1;
                                 int aftRoomCount = -1;
                                 std::string response = action + " " + std::to_string(preRoomCount) + " " + std::to_string(aftRoomCount);
@@ -333,19 +348,37 @@ int main() {
                                 bufUDP[sizeof(bufUDP) - 1] = '\0';  // Ensure null termination
                             }
 
+                            // ***********************************************************************
+                            // ********** SEND ACTION RESULT FROM BACKEND SERVER TO CLIENT ***********
+                            // ***********************************************************************
+                            // SEND FORMAT: "Action preRoomCount aftRoomCount"
                             if (send(new_fd, bufUDP, strlen(bufUDP), 0) == -1) {
                                 perror("send");
                             }
                             std::cout << "The main server sent the reservation result to the client." << std::endl;
                         }
 
-                    } else { // password doesn't match - sending "p" reply to client
+                    }
+
+                    // DENIED AUTHENTICATION "p"
+                    else {
+                        // ***********************************************************
+                        // ********** SEND DENIED AUTHENTICATION TO CLIENT ***********
+                        // ***********************************************************
+                        // SEND FORMAT: "response"
                         response = "p";
                         if (send(new_fd, response.c_str(), response.size(), 0) == -1) {
                             perror("send");
                         }
                     }
-                } else { // username couldn't be found - sending "n" reply to client
+                }
+
+                // UN-FOUND AUTHENTICATION "n"
+                else {
+                    // **********************************************************
+                    // ********** SEND ERROR AUTHENTICATION TO CLIENT ***********
+                    // **********************************************************
+                    // SEND FORMAT: "response"
                     response = "n";
                     if (send(new_fd, response.c_str(), response.size(), 0) == -1) {
                         perror("send");
