@@ -269,9 +269,9 @@ int main() {
                             std::string action = receivedRequest.substr(0, first_space);
                             std::string roomCode = receivedRequest.substr(first_space + 1);
                             if (action == "Reservation") {
-                                std::cout << "The main server has received the reservation request for Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
+                                std::cout << "The main server has received the reservation request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
                             } else if (action == "Availability") {
-                                std::cout << "The main server has received the availability request for Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
+                                std::cout << "The main server has received the availability request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
                             }
 
                             char serverType = roomCode[0];
@@ -324,6 +324,13 @@ int main() {
                                     std::cout << "The main server received the response and the updated room status from Server " << serverType << " using UDP over port " << SERVER_M_UDP_PORT <<  "." << std::endl;
                                     std::cout << "The room status of " << roomCode << " has been updated." << std::endl;
                                 }
+                            } else {
+                                // Setting preRoomCount and aftRoomCount to -1 when the roomType (S,D,U) is not found
+                                int preRoomCount = -1;
+                                int aftRoomCount = -1;
+                                std::string response = action + " " + std::to_string(preRoomCount) + " " + std::to_string(aftRoomCount);
+                                strncpy(bufUDP, response.c_str(), sizeof(bufUDP) - 1);
+                                bufUDP[sizeof(bufUDP) - 1] = '\0';  // Ensure null termination
                             }
 
                             if (send(new_fd, bufUDP, strlen(bufUDP), 0) == -1) {

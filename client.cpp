@@ -121,6 +121,10 @@ int main() {
             std::cout << "Welcome member " << username << "!" << std::endl;
 
             while (true) {
+                std::string roomCode;
+                std::cout << "Please enter the room code: ";
+                getline(std::cin, roomCode);
+
                 // Asking user to choose between Availability check or Reservation
                 std::string action;
                 while (true) {  // ensure only valid actions are accepted
@@ -133,10 +137,6 @@ int main() {
                         std::cout << "Invalid response: please enter \"Availability\" or \"Reservation\"." << std::endl;
                     }
                 }
-
-                std::string roomCode;
-                std::cout << "Please enter the room code: ";
-                getline(std::cin, roomCode);
 
                 // Concatenate action and roomCode with a space
                 std::string query = action + " " + roomCode;
