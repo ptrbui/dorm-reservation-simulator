@@ -1,14 +1,13 @@
 /*
- * serverM.cpp
+ * Author: Peter Bui
+ * Component: serverM.cpp
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #include <string.h>
 #include <netdb.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -23,26 +22,20 @@
 #define SERVER_S_PORT 41705
 #define SERVER_D_PORT 42705
 #define SERVER_U_PORT 43705
-#define SERVER_M_UDP_PORT "44705"
-#define SERVER_M_TCP_PORT "45705"
-#define HOST_NAME "127.0.0.1"
+#define SERVER_M_UDP "44705"
+#define SERVER_M_TCP "45705"
+#define LOCALHOST "127.0.0.1"
 #define MAXBUFLEN 1000
 #define BACKLOG 10
 
-// refers to Beej's guide
+// sigchld_handler from Beej's Guide
 void sigchld_handler(int s) {
     while (waitpid(-1, NULL, WNOHANG) > 0)
         ;
 }
 
-void *get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in *)sa)->sin_addr);
-    }
-    return &(((struct sockaddr_in6 *)sa)->sin6_addr);
-}
 
-// decrypt
+// decrypt encrypted username and passwords from client
 std::string decrypt(const std::string &text) {
     std::string decryptedText = "";
     for (char c : text) {
@@ -61,26 +54,24 @@ std::string decrypt(const std::string &text) {
 
 int main() {
 
-    // Seting up UDP socket
+    // Setting up UDP Socket ~from Beej's Guide
     int sockfdUDP;
     struct addrinfo hintsUDP, *servinfoUDP, *pUDP;
     int rvUDP;
     int numbytesUDP;
-
     struct sockaddr_storage their_addrUDP;
     char bufUDP[MAXBUFLEN];
     socklen_t addr_lenUDP;
-
     memset(&hintsUDP, 0, sizeof hintsUDP);
     hintsUDP.ai_family = AF_INET;
     hintsUDP.ai_socktype = SOCK_DGRAM;
 
-    if ((rvUDP = getaddrinfo(HOST_NAME, SERVER_M_UDP_PORT, &hintsUDP, &servinfoUDP)) != 0) {
+    if ((rvUDP = getaddrinfo(LOCALHOST, SERVER_M_UDP, &hintsUDP, &servinfoUDP)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rvUDP));
         return 1;
     }
 
-    // loop through all the results and bind to the first we can
+    // connecting to first available socket
     for (pUDP = servinfoUDP; pUDP != NULL; pUDP = pUDP->ai_next) {
         if ((sockfdUDP = socket(pUDP->ai_family, pUDP->ai_socktype, pUDP->ai_protocol)) == -1){
             perror("listener: socket");
@@ -119,30 +110,30 @@ int main() {
         if (port == SERVER_S_PORT) serverID = 'S';
         else if (port == SERVER_D_PORT) serverID = 'D';
         else if (port == SERVER_U_PORT) serverID = 'U';
-        std::cout << "The main server has received the room status from Server " << serverID << " using UDP over port " << SERVER_M_UDP_PORT << "." << std::endl;
+        std::cout << "The main server has received the room status from Server " << serverID << " using UDP over port " << SERVER_M_UDP << "." << std::endl;
 
-        // Parse the binary message into a std::map
+        // parse binary msg into map
         size_t index = 0;
         while (index < static_cast<size_t>(numbytesUDP)) {
-            // Extract the key size
+            // retrieving key size
             uint16_t keySize;
             memcpy(&keySize, bufUDP + index, sizeof(uint16_t));
             keySize = ntohs(keySize);
             index += sizeof(uint16_t);
-            // Extract the key
+            // retrieving key
             std::string key(bufUDP + index, keySize);
             index += keySize;
-            // Extract the value
+            // retrieving value
             int value;
             memcpy(&value, bufUDP + index, sizeof(int));
             value = ntohl(value);
             index += sizeof(int);
-            // Insert the key-value pair into the std::map
+            // insert key-value into map
             roomMap[key] = value;
         }
     }
 
-    std::string filename = "member.txt";
+    std::string filename = "../data/member.txt";
     std::ifstream file(filename);
     std::map<std::string, std::string> memberMap;
     std::string line;
@@ -159,7 +150,7 @@ int main() {
     }
     file.close();
 
-    // setting up TCP server socket
+    // Setting up TCP Socket ~from Beej's Guide
     int sockfdTCP, new_fd;
     int numbytesTCP;
     struct addrinfo hintsTCP, *servinfoTCP, *pTCP;
@@ -169,18 +160,17 @@ int main() {
     int yes = 1;
     int rvTCP;
     char bufTCP[MAXBUFLEN];
-
     memset(&hintsTCP, 0, sizeof hintsTCP);
     hintsTCP.ai_family = AF_UNSPEC;
     hintsTCP.ai_socktype = SOCK_STREAM;
-    hintsTCP.ai_flags = AI_PASSIVE; //??????
+    hintsTCP.ai_flags = AI_PASSIVE;
 
-    if ((rvTCP = getaddrinfo(NULL, SERVER_M_TCP_PORT, &hintsTCP, &servinfoTCP)) != 0) {
+    if ((rvTCP = getaddrinfo(NULL, SERVER_M_TCP, &hintsTCP, &servinfoTCP)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rvTCP));
         return 1;
     }
 
-    // loop through all the results and bind to the first we can
+    // connecting to first available socket
     for (pTCP = servinfoTCP; pTCP != NULL; pTCP = pTCP->ai_next) {
         if ((sockfdTCP = socket(pTCP->ai_family, pTCP->ai_socktype, pTCP->ai_protocol)) == -1) {
             perror("server: socket");
@@ -208,7 +198,7 @@ int main() {
         perror("listen");
         exit(1);
     }
-    // deal with all dead processes
+    // handle dead processes
     sa.sa_handler = sigchld_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
@@ -228,13 +218,13 @@ int main() {
         }
 
         if (!fork()) {
-            close(sockfdTCP); // child doesn't need the listener
+            close(sockfdTCP);
             while (true) {
 
                 // *****************************************************************
                 // ********** RECEIVE AUTHENTICATION REQUEST FROM CLIENT ***********
                 // *****************************************************************
-                // RECEIVED FORMAT: "username password"
+                // RECEIVED FORMAT: "userType username password"
                 numbytesTCP = recv(new_fd, bufTCP, MAXBUFLEN - 1, 0);
                 if (numbytesTCP == -1) {
                     perror("recv");
@@ -244,14 +234,16 @@ int main() {
                 }
                 bufTCP[numbytesTCP] = '\0';
                 std::string received = std::string(bufTCP);
-                size_t delim_pos = received.find(" ");
-                std::string username = received.substr(0, delim_pos);
-                std::string password = received.substr(delim_pos + 1);
+                size_t firstSpacePos = received.find(' ');
+                size_t secondSpacePos = received.find(' ', firstSpacePos + 1);
+                std::string userType = received.substr(0, firstSpacePos);
+                std::string username = received.substr(firstSpacePos + 1, secondSpacePos - firstSpacePos - 1);
+                std::string password = received.substr(secondSpacePos + 1);
                 std::string response;
-                std::cout << "The main server received the authentication for " << decrypt(username) << " using TCP over port " << SERVER_M_TCP_PORT << "." << std::endl;
 
                 // APPROVED AUTHENTICATION "s"
                 if (memberMap.find(username) != memberMap.end()) {
+                    std::cout << "The main server received the authentication for " << decrypt(username) << " using TCP over port " << SERVER_M_TCP << "." << std::endl;
                     if (memberMap[username] == password) {
                         // *************************************************************
                         // ********** SEND APPROVED AUTHENTICATION TO CLIENT ***********
@@ -278,9 +270,9 @@ int main() {
                             std::string action = receivedRequest.substr(0, first_space);
                             std::string roomCode = receivedRequest.substr(first_space + 1);
                             if (action == "Reservation") {
-                                std::cout << "The main server has received the reservation request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
+                                std::cout << "The main server has received the reservation request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP << "." << std::endl;
                             } else if (action == "Availability") {
-                                std::cout << "The main server has received the availability request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP_PORT << "." << std::endl;
+                                std::cout << "The main server has received the availability request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP << "." << std::endl;
                             }
 
                             char serverType = roomCode[0];
@@ -302,7 +294,7 @@ int main() {
                                 struct sockaddr_in M_addr;
                                 M_addr.sin_family = AF_INET;
                                 M_addr.sin_port = htons(udpPort);
-                                inet_aton(HOST_NAME, &M_addr.sin_addr);
+                                inet_aton(LOCALHOST, &M_addr.sin_addr);
                                 std::string udpMessage = std::string(bufTCP) + " " + username;
                                 strcpy(bufTCP, udpMessage.c_str());
 
@@ -332,9 +324,9 @@ int main() {
                                 int preRoomCount = std::stoi(strBufUDP.substr(firstSpacePos + 1, secondSpacePos - firstSpacePos - 1));
                                 int aftRoomCount = std::stoi(strBufUDP.substr(secondSpacePos + 1));
                                 if (preRoomCount == aftRoomCount) { // no update
-                                    std::cout << "The main server received the response from Server " << serverType << " using UDP over port " << SERVER_M_UDP_PORT <<  "." << std::endl;
+                                    std::cout << "The main server received the response from Server " << serverType << " using UDP over port " << SERVER_M_UDP << "." << std::endl;
                                 } else { // update
-                                    std::cout << "The main server received the response and the updated room status from Server " << serverType << " using UDP over port " << SERVER_M_UDP_PORT <<  "." << std::endl;
+                                    std::cout << "The main server received the response and the updated room status from Server " << serverType << " using UDP over port " << SERVER_M_UDP << "." << std::endl;
                                     std::cout << "The room status of " << roomCode << " has been updated." << std::endl;
                                 }
                             }
@@ -355,11 +347,14 @@ int main() {
                             if (send(new_fd, bufUDP, strlen(bufUDP), 0) == -1) {
                                 perror("send");
                             }
-                            std::cout << "The main server sent the reservation result to the client." << std::endl;
+                            if (action == "Reservation") {
+                                std::cout << "The main server sent the reservation result to the client." << std::endl;
+                            } else if (action == "Availability") {
+                                std::cout << "The main server sent the availability information to the client." << std::endl;
+                            }
                         }
 
                     }
-
                     // DENIED AUTHENTICATION "p"
                     else {
                         // ***********************************************************
@@ -371,6 +366,127 @@ int main() {
                             perror("send");
                         }
                     }
+                }
+
+                else if (userType == "guest") {
+                    std::cout << "The main server received the guest request for " << decrypt(username) << " using TCP over port " << SERVER_M_TCP << "." << std::endl;
+                    std::cout << "The main server accepts " << decrypt(username) << " as a guest." << std::endl;
+                        // *************************************************************
+                        // ********** SEND APPROVED AUTHENTICATION TO GUEST ***********
+                        // *************************************************************
+                        // SEND FORMAT: "response"
+                        response = "s";
+                        if (send(new_fd, response.c_str(), response.size(), 0) == -1) {
+                            perror("send");
+                        }
+                        std::cout << "The main server sent the guest result to the client." << std::endl;
+
+                        while (true) {
+                            // *********************************************************
+                            // ********** RECEIVE ACTION REQUEST FROM CLIENT ***********
+                            // *********************************************************
+                            // RECEIVE FORMAT: "Action RoomCode"
+                            if ((numbytesTCP = recv(new_fd, bufTCP, MAXBUFLEN - 1, 0)) == -1) {
+                                perror("recv");
+                                exit(1);
+                            }
+                            bufTCP[numbytesTCP] = '\0';
+                            std::string receivedRequest(bufTCP);
+                            size_t first_space = receivedRequest.find(" ");
+                            std::string action = receivedRequest.substr(0, first_space);
+                            std::string roomCode = receivedRequest.substr(first_space + 1);
+
+
+                            if (action == "Availability") {
+                                std::cout << "The main server has received the availability request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP << "." << std::endl;
+                                char serverType = roomCode[0];
+                                int udpPort;
+                                bool sendStatus = false;
+
+                                if (serverType == 'S') {
+                                    udpPort = SERVER_S_PORT;
+                                    sendStatus = true;
+                                } else if (serverType == 'D') {
+                                    udpPort = SERVER_D_PORT;
+                                    sendStatus = true;
+                                } else if (serverType == 'U') {
+                                    udpPort = SERVER_U_PORT;
+                                    sendStatus = true;
+                                }
+
+                                if (sendStatus) {
+                                    struct sockaddr_in M_addr;
+                                    M_addr.sin_family = AF_INET;
+                                    M_addr.sin_port = htons(udpPort);
+                                    inet_aton(LOCALHOST, &M_addr.sin_addr);
+                                    std::string udpMessage = std::string(bufTCP) + " " + username;
+                                    strcpy(bufTCP, udpMessage.c_str());
+
+                                    // ******************************************************************************
+                                    // ********** SEND AVAILABILITY REQUEST FROM CLIENT TO BACKEND SERVER ***********
+                                    // ******************************************************************************
+                                    // SEND FORMAT: "Action RoomCode username"
+                                    if ((numbytesUDP = sendto(sockfdUDP, bufTCP, strlen(bufTCP), 0, (sockaddr *)&M_addr, sizeof(M_addr))) == -1) {
+                                        perror("talker: sendto");
+                                        exit(1);
+                                    }
+                                    std::cout << "The main server sent a request to Server " << serverType << "." << std::endl;
+
+                                    // ************************************************************************
+                                    // ********** RECEIVE AVAILABILITY RESPONSE FROM BACKEND SERVER ***********
+                                    // ************************************************************************
+                                    // RECEIVE FORMAT: "Action preRoomCount aftRoomCount"
+                                    if ((numbytesUDP = recvfrom(sockfdUDP, bufUDP, MAXBUFLEN - 1, 0, (struct sockaddr *)&their_addrUDP, &addr_lenUDP)) == -1) {
+                                        perror("recvfrom");
+                                        exit(1);
+                                    }
+                                    bufUDP[numbytesUDP] = '\0';
+                                    std::string strBufUDP(bufUDP);
+                                    size_t firstSpacePos = strBufUDP.find(' ');
+                                    size_t secondSpacePos = strBufUDP.find(' ', firstSpacePos + 1);
+                                    std::string action = strBufUDP.substr(0, firstSpacePos);
+                                    int preRoomCount = std::stoi(strBufUDP.substr(firstSpacePos + 1, secondSpacePos - firstSpacePos - 1));
+                                    int aftRoomCount = std::stoi(strBufUDP.substr(secondSpacePos + 1));
+                                    if (preRoomCount == aftRoomCount) { // no update
+                                        std::cout << "The main server received the response from Server " << serverType << " using UDP over port " << SERVER_M_UDP << "." << std::endl;
+                                    } else { // update
+                                        std::cout << "The main server received the response and the updated room status from Server " << serverType << " using UDP over port " << SERVER_M_UDP << "." << std::endl;
+                                        std::cout << "The room status of " << roomCode << " has been updated." << std::endl;
+                                    }
+                                } else { // If sendStatus is False, the roomType was not found. Set preRoomCount and aftRoomCount to -1.
+                                    int preRoomCount = -1;
+                                    int aftRoomCount = -1;
+                                    std::string response = action + " " + std::to_string(preRoomCount) + " " + std::to_string(aftRoomCount);
+                                    strncpy(bufUDP, response.c_str(), sizeof(bufUDP) - 1);
+                                    bufUDP[sizeof(bufUDP) - 1] = '\0';
+                                }
+                            }
+
+                            else if (action == "Reservation") {
+                                std::cout << "The main server has received the reservation request on Room " << roomCode << " from " << decrypt(username) << " over port " << SERVER_M_TCP << "." << std::endl;
+                                std::cout << decrypt(username) << " cannot make a reservation." << std::endl;
+
+                                // if a guest tries to make a reservation, we set preRoomCount and aftRoomCount to -2
+                                int preRoomCount = -2;
+                                int aftRoomCount = -2;
+                                std::string response = action + " " + std::to_string(preRoomCount) + " " + std::to_string(aftRoomCount);
+                                strncpy(bufUDP, response.c_str(), sizeof(bufUDP) - 1);
+                                bufUDP[sizeof(bufUDP) - 1] = '\0';
+                            }
+
+                            // *****************************************************************************
+                            // ********** SEND ACTION RESULT FROM BACKEND SERVER TO CLIENT ***********
+                            // *****************************************************************************
+                            // SEND FORMAT: "Action preRoomCount aftRoomCount"
+                            if (send(new_fd, bufUDP, strlen(bufUDP), 0) == -1) {
+                                perror("send");
+                            }
+                            if (action == "Reservation") {
+                                std::cout << "The main server sent the error message to the client." << std::endl;
+                            } else if (action == "Availability") {
+                                std::cout << "The main server sent the availability information to the client." << std::endl;
+                            }
+                        }
                 }
 
                 // UN-FOUND AUTHENTICATION "n"

@@ -1,29 +1,25 @@
 /*
- * client.cpp
+ * Author: Peter Bui
+ * Component: client.cpp
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #include <string.h>
 #include <netdb.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <sys/wait.h>
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <map>
-#include <sstream>
 
-#define SERVER_M_TCP_PORT "45705"
-#define HOST_NAME "127.0.0.1"
+#define SERVER_M_TCP "45705"
+#define LOCALHOST "127.0.0.1"
 #define MAXDATASIZE 100
 
-// refers to Beej's guide
+// get_in_addr from Beej's Guide
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in *)sa)->sin_addr);
@@ -41,7 +37,7 @@ std::string encrypt(const std::string &text) {
         } else if (isdigit(c)) {
             encryptedText += static_cast<char>((c - '0' + 3) % 10 + '0');
         } else {
-            encryptedText += c;  // Special characters remain unchanged
+            encryptedText += c;
         }
     }
     return encryptedText;
@@ -49,21 +45,21 @@ std::string encrypt(const std::string &text) {
 
 int main() {
 
+    // Setting up TCP Socket ~from Beej's Guide
     int sockfd, numbytes;
     char buf[MAXDATASIZE], roomBuf[MAXDATASIZE];
     struct addrinfo hints, *servinfo, *p;
     int rv;
-
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    if ((rv = getaddrinfo(HOST_NAME, SERVER_M_TCP_PORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(LOCALHOST, SERVER_M_TCP, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
 
-    // loop through all the results and connect to the first
+    // connecting to first available socket
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("client: socket");
@@ -81,12 +77,9 @@ int main() {
         fprintf(stderr, "client: failed to connect\n");
         return 2;
     }
-
     std::cout << "Client is up and running." << std::endl;
 
     freeaddrinfo(servinfo);
-
-    // get the dynamic port
     struct sockaddr_in local_addr;
     socklen_t addr_len = sizeof(local_addr);
     memset(&local_addr, 0, sizeof(local_addr));
@@ -109,18 +102,22 @@ int main() {
         } else {
             userType = "member";
         }
-        std::string message = encrypt(username) + " " + encrypt(password);
+        std::string message = userType + " " + encrypt(username) + " " + encrypt(password);
 
         // ****************************************************************
         // ********** SEND AUTHENTICATION REQUEST TO MAIN SERVER **********
         // ****************************************************************
-        // SEND FORMAT: "username password"
+        // SEND FORMAT: "userType username password"
         const char *msg = message.c_str();
         int len = strlen(msg);
         if (send(sockfd, msg, len, 0) == -1) {
             perror("send");
         }
-        std::cout << username << " sent an authentication request to the main server." << std::endl;
+        if (userType == "member") {
+            std::cout << username << " sent an authentication request to the main server." << std::endl;
+        } else if (userType == "guest") {
+            std::cout << username << " sent a guest authentication request to the main server over port " << ntohs(local_addr.sin_port) << "." << std::endl;
+        }
 
         // **********************************************************************
         // ********** RECEIVE AUTHENTICATION DECISION FROM MAIN SERVER **********
@@ -134,7 +131,11 @@ int main() {
 
         // APPROVED AUTHENTICATION "s"
         if (buf[0] == 's') {
-            std::cout << "Welcome member " << username << "!" << std::endl;
+            if (userType == "member") {
+                std::cout << "Welcome member " << username << "!" << std::endl;
+            } else if (userType == "guest") {
+                std::cout << "Welcome guest " << username << "!" << std::endl;
+            }
             while (true) {
                 std::string roomCode;
                 std::cout << "Please enter the room code: ";
@@ -143,14 +144,14 @@ int main() {
                 // Asking user to choose between Availability check or Reservation
                 std::string action;
                 while (true) {  // ensure only valid actions are accepted
-                    std::cout << "Would you like to search for the availability or make a reservation? ";
-                    std::cout << "(Enter \"Availability\" to search for the availability or Enter \"Reservation\" to make a reservation): ";
-                    getline(std::cin, action);
-                    if (action == "Reservation" || action == "Availability") {
-                        break;  // Valid action, break the validation loop
-                    } else {
-                        std::cout << "Invalid response: please enter \"Availability\" or \"Reservation\"." << std::endl;
-                    }
+                std::cout << "Would you like to search for the availability or make a reservation? ";
+                std::cout << "(Enter \"Availability\" to search for the availability or Enter \"Reservation\" to make a reservation): ";
+                getline(std::cin, action);
+                   if (action == "Reservation" || action == "Availability") {
+                        break;  // valid action, break the validation loop
+                   } else {
+                       std::cout << "Invalid Input: Please Enter \"Availability\" or \"Reservation\" only." << std::endl;
+                   }
                 }
 
 
@@ -181,7 +182,6 @@ int main() {
                     exit(1);
                 }
                 roomBuf[numbytes] = '\0';
-                std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                 std::string strRoomBuf(roomBuf);
                 size_t firstSpacePos = strRoomBuf.find(' ');
                 size_t secondSpacePos = strRoomBuf.find(' ', firstSpacePos + 1);
@@ -189,19 +189,27 @@ int main() {
                 int aftRoomCount = std::stoi(strRoomBuf.substr(secondSpacePos + 1));
 
                 if (action == "Reservation") {
-                    if (aftRoomCount == -1) {
+                    if (aftRoomCount == -2) {
+                        std::cout << "Permission denied: Guest cannot make a reservation." << std::endl;
+                    } else if (aftRoomCount == -1) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "Oops! Not able to find the room layout." << std::endl;
                     } else if (aftRoomCount < preRoomCount) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "Congratulations! The reservation for Room " << query << " has been made." << std::endl;
                     } else if (preRoomCount == 0) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "Sorry! The requested room is not available." << std::endl;
                     }
                 } else if (action == "Availability") {
                     if (aftRoomCount == -1) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "Not able to find the room layout." << std::endl;
                     } else if (preRoomCount > 0) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "The requested room is available." << std::endl;
                     } else if (preRoomCount == 0) {
+                        std::cout << "The client received the response from the main server using TCP over port " << ntohs(local_addr.sin_port) << "." << std::endl;
                         std::cout << "The requested room is not available." << std::endl;
                     }
                 }
@@ -219,9 +227,5 @@ int main() {
         else if (buf[0] == 'p') {
             std::cout << "Failed login: Password does not match." << std::endl;
         }
-
     }
-
-    close(sockfd);
-    return 0;
 }
