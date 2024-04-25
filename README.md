@@ -11,7 +11,7 @@ the encryption scheme, see the encrypt() and decrypt() methods in client.cpp and
 
 
 <p align="center">
-  <img src="../assets/system_diagram.png" alt="System Diagram">
+  <img src="assets/system_diagram.png" alt="System Diagram">
   <br>
   <em>Figure 1: System diagram of the dorm room booking system.</em>
 </p>
