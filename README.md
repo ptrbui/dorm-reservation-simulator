@@ -1,4 +1,4 @@
-# Networking / Sockets Project
+# Dorm Reservation Networking / Sockets Project
 
 ## About
 This project was created with the goal of simulating a simple networking system that uses both TCP and UDP for transport 
